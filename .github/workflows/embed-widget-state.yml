@@ -2,7 +2,6 @@
 
 name: Embed and Flatten Jupyter Widget State
 
-# Allow this workflow to push changes
 permissions:
   contents: write
 
@@ -13,7 +12,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  embed-and-flatten-widgets:
+  embed_and_flatten:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,50 +27,48 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install nbformat nbclient ipywidgets
-
-      - name: Execute notebooks, embed & flatten widget state
+      - name: Execute notebooks & embed widget state
         shell: bash
         run: |
-          python - << 'PYCODE'
-import glob
-import nbformat
-from nbclient import NotebookClient
+          pip install nbformat nbclient ipywidgets
+          python - <<'EOF'
+            import glob
+            import nbformat
+            from nbclient import NotebookClient
 
-for path in glob.glob("**/*.ipynb", recursive=True):
-    # Read and execute with widget-state capture
-    nb = nbformat.read(path, as_version=4)
-    client = NotebookClient(
-        nb,
-        allow_errors=True,
-        store_widget_state=True,   # embed under metadata.widgets :contentReference[oaicite:0]{index=0}
-        timeout=None
-    )
-    client.execute()
+            for path in glob.glob('**/*.ipynb', recursive=True):
+                nb = nbformat.read(path, as_version=4)
+                client = NotebookClient(
+                    nb,
+                    allow_errors=True,
+                    store_widget_state=True,
+                    timeout=None
+                )
+                try:
+                    client.execute()
+                except Exception as e:
+                    print(f"⚠️ Execution failed for {path}: {e}")
 
-    # Flatten metadata.widgets so state is top-level under widgets.state
-    mw = nb.metadata.get('widgets')
-    if isinstance(mw, dict) and len(mw) == 1:
-        inner = next(iter(mw.values()))
-        if isinstance(inner, dict) and 'state' in inner:
-            nb.metadata['widgets'] = inner
+                # Flatten widget metadata so GitHub sees widgets.state at top level
+                mw = nb.metadata.get('widgets', {})
+                if isinstance(mw, dict):
+                    for inner in mw.values():
+                        if isinstance(inner, dict) and 'state' in inner:
+                            nb.metadata['widgets'] = inner
+                            break
+                for cell in nb.cells:
+                    cw = cell.metadata.get('widgets', {})
+                    if isinstance(cw, dict):
+                        for inner2 in cw.values():
+                            if isinstance(inner2, dict) and 'state' in inner2:
+                                cell.metadata['widgets'] = inner2
+                                break
 
-    # Also flatten any per-cell widget metadata
-    for cell in nb.cells:
-        cw = cell.metadata.get('widgets')
-        if isinstance(cw, dict) and len(cw) == 1:
-            inner2 = next(iter(cw.values()))
-            if isinstance(inner2, dict) and 'state' in inner2:
-                cell.metadata['widgets'] = inner2
+                nbformat.write(nb, path)
+          EOF
 
-    nbformat.write(nb, path)
-PYCODE
-
-      - name: Commit updated notebooks
+      - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git diff --quiet --exit-code \
-            || (git commit -am "chore: embed & flatten widget state" && git push)
+          git diff --quiet --exit-code || (git commit -am "chore: embed & flatten widget state" && git push)
