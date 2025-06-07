@@ -2,6 +2,7 @@
 
 name: Embed Jupyter Widget State via nbclient
 
+# Grant push permissions so we can commit back changes
 permissions:
   contents: write
 
@@ -27,35 +28,38 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install dependencies
-        run: python -m pip install nbformat nbclient ipywidgets
-
       - name: Execute notebooks & embed widget state
+        # Merge install + execute into one bash block to keep YAML simple
         shell: bash
         run: |
-          python - <<EOF
-import glob
-import nbformat
-from nbclient import NotebookClient
+          # 1) Install needed libraries
+          pip install nbformat nbclient ipywidgets
 
-for path in glob.glob("**/*.ipynb", recursive=True):
-    nb = nbformat.read(path, as_version=4)
-    client = NotebookClient(
-        nb,
-        allow_errors=True,
-        store_widget_state=True,
-        timeout=None
-    )
-    try:
-        client.execute()
-    except Exception as e:
-        print(f"⚠️ Execution failed for {path}: {e}")
-    nbformat.write(nb, path)
-EOF
+          # 2) Re-run each notebook, capturing widget state
+          python - <<EOF
+          import glob
+          import nbformat
+          from nbclient import NotebookClient
+
+          for path in glob.glob("**/*.ipynb", recursive=True):
+              nb = nbformat.read(path, as_version=4)
+              client = NotebookClient(
+                  nb,
+                  allow_errors=True,
+                  store_widget_state=True,
+                  timeout=None
+              )
+              try:
+                  client.execute()
+              except Exception as e:
+                  print(f"⚠️ Execution failed for {path}: {e}")
+              nbformat.write(nb, path)
+          EOF
 
       - name: Commit notebooks with widget state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # If any notebooks changed, commit & push them
           git diff --quiet --exit-code \
             || (git commit -am "chore: embed widget state in notebooks" && git push)
