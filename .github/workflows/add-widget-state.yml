@@ -25,12 +25,15 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Add empty `state` if missing in widget-state mime
+      - name: Add empty `state` if missing in widget-state mime (with JSON validation)
         shell: bash
         run: |
-          updated=false
+          patched_any=false
+
           for nb in $(git ls-files '*.ipynb'); do
             tmp=$(mktemp)
+
+            # Try to patch
             jq '
               if .metadata.widgets
                  and .metadata.widgets["application/vnd.jupyter.widget-state+json"]
@@ -40,20 +43,30 @@ jobs:
               else
                 .
               end
-            ' "$nb" > "$tmp"
+            ' "$nb" > "$tmp" 2>/dev/null
+
+            # First, did jq even produce valid JSON?
+            if ! jq empty "$tmp" >/dev/null 2>&1; then
+              echo "❗ JSON invalid after patch attempt, skipping: $nb"
+              rm "$tmp"
+              continue
+            fi
+
+            # Next, did anything actually change?
             if ! diff -q "$nb" "$tmp" >/dev/null; then
               mv "$tmp" "$nb"
-              echo "✅ Patched $nb"
-              updated=true
+              echo "✅ Patched widget-state in $nb"
+              patched_any=true
             else
               rm "$tmp"
             fi
           done
-          if [ "$updated" = false ]; then
-            echo "ℹ️  All notebooks already have a widget-state ‘state’ key."
+
+          if [ "$patched_any" = false ]; then
+            echo "ℹ️  No notebooks needed patching (or JSON errors prevented changes)."
           fi
 
-      - name: Commit changes
+      - name: Commit any changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
