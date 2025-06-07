@@ -1,8 +1,8 @@
-# File: .github/workflows/clean-notebooks.yml
+# File: .github/workflows/restore-notebook-widgets.yml
 
-name: Clean Jupyter Notebooks Metadata
+name: Embed Jupyter Widget State
 
-# Grant write access so GITHUB_TOKEN can push cleaned notebooks
+# give GITHUB_TOKEN permission to push
 permissions:
   contents: write
 
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  strip-widgets:
+  embed-widget-state:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,31 +28,23 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install nbformat
-        run: python -m pip install nbformat
-
-      - name: Strip widget metadata
-        shell: bash
+      - name: Install dependencies
         run: |
-          python - << 'PYCODE'
-          import nbformat
-          import os
+          python -m pip install nbformat nbclient ipywidgets
 
-          for root, _, files in os.walk('.'):
-              for fname in files:
-                  if fname.lower().endswith('.ipynb'):
-                      path = os.path.join(root, fname)
-                      nb = nbformat.read(path, as_version=4)
-                      nb.metadata.pop('widgets', None)
-                      for cell in nb.cells:
-                          cell.metadata.pop('widgets', None)
-                      nbformat.write(nb, path)
-          PYCODE
+      - name: Execute notebooks and embed widget state
+        run: |
+          jupyter nbconvert \
+            --to notebook \
+            --execute \
+            --ExecutePreprocessor.store_widget_state=True \
+            --ExecutePreprocessor.allow_errors=True \
+            --inplace \
+            **/*.ipynb
 
-      - name: Commit cleaned notebooks
+      - name: Commit notebooks with widget state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # If any tracked files changed, commit and push them
           git diff --quiet --exit-code \
-            || (git commit -am "chore: strip widget metadata" && git push)
+            || (git commit -am "chore: embed widget state in notebooks" && git push)
