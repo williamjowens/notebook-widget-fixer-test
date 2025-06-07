@@ -1,0 +1,59 @@
+# File: .github/workflows/embed-widget-state.yml
+
+name: Embed Jupyter Widget State
+
+# Allow the workflow to push updated notebooks back to the repo
+permissions:
+  contents: write
+
+on:
+  push:
+    paths:
+      - '**/*.ipynb'
+  workflow_dispatch:
+
+jobs:
+  embed-widget-state:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: python -m pip install nbformat nbclient ipywidgets nbconvert
+
+      - name: Execute notebooks & embed widget state
+        shell: bash
+        run: |
+          python - << 'PYCODE'
+          import glob, subprocess
+
+          # Find every notebook, recursively
+          for path in glob.glob('**/*.ipynb', recursive=True):
+              # Re-execute and store widget state in-place
+              subprocess.run([
+                  'python', '-m', 'nbconvert',
+                  '--to', 'notebook',
+                  '--execute',
+                  '--ExecutePreprocessor.store_widget_state=True',
+                  '--ExecutePreprocessor.allow_errors=True',
+                  '--inplace', path
+              ], check=False)
+          PYCODE
+
+      - name: Commit notebooks with widget state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Stage & commit any changed notebooks, then push
+          git diff --quiet --exit-code \
+            || (git commit -am "chore: embed widget state in notebooks" && git push)
