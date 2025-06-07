@@ -1,6 +1,6 @@
 # File: .github/workflows/add-widget-state.yml
 
-name: Inject Widget State Metadata
+name: Embed Jupyter Widget State
 
 permissions:
   contents: write
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  inject-widget-state:
+  embed-widget-state:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,53 +22,44 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
 
-      - name: Add empty `state` if missing in widget-state mime (with JSON validation)
+      - name: Install nbformat & nbconvert
+        run: python -m pip install nbformat nbconvert
+
+      - name: Embed widget-state in all notebooks
         shell: bash
         run: |
-          patched_any=false
+          python - << 'PYCODE'
+          import os
+          import nbformat
+          from nbconvert.preprocessors import WidgetStatePreprocessor
 
-          for nb in $(git ls-files '*.ipynb'); do
-            tmp=$(mktemp)
+          preprocessor = WidgetStatePreprocessor()
 
-            # Try to patch
-            jq '
-              if .metadata.widgets
-                 and .metadata.widgets["application/vnd.jupyter.widget-state+json"]
-              then
-                .metadata.widgets["application/vnd.jupyter.widget-state+json"].state
-                |= . // {}
-              else
-                .
-              end
-            ' "$nb" > "$tmp" 2>/dev/null
+          for root, _, files in os.walk('.'):
+              for fname in files:
+                  if not fname.lower().endswith('.ipynb'):
+                      continue
+                  path = os.path.join(root, fname)
+                  nb = nbformat.read(path, as_version=4)
 
-            # First, did jq even produce valid JSON?
-            if ! jq empty "$tmp" >/dev/null 2>&1; then
-              echo "❗ JSON invalid after patch attempt, skipping: $nb"
-              rm "$tmp"
-              continue
-            fi
+                  try:
+                      nb, _ = preprocessor.preprocess(nb, {'metadata': {}})
+                  except Exception as e:
+                      print(f"❗ Failed to embed in {path}: {e}")
+                      continue
 
-            # Next, did anything actually change?
-            if ! diff -q "$nb" "$tmp" >/dev/null; then
-              mv "$tmp" "$nb"
-              echo "✅ Patched widget-state in $nb"
-              patched_any=true
-            else
-              rm "$tmp"
-            fi
-          done
+                  nbformat.write(nb, path)
+                  print(f"✅ Embedded widget state in {path}")
+          PYCODE
 
-          if [ "$patched_any" = false ]; then
-            echo "ℹ️  No notebooks needed patching (or JSON errors prevented changes)."
-          fi
-
-      - name: Commit any changes
+      - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git diff --quiet --exit-code \
-            || (git commit -am "chore: inject widget state metadata" && git push)
+            || (git commit -am "chore: embed Jupyter widget state" && git push)
