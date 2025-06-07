@@ -1,0 +1,58 @@
+# File: .github/workflows/clean-widget-metadata.yml
+
+name: Clean Widget Metadata
+
+# Grant write access so GITHUB_TOKEN can push cleaned notebooks
+permissions:
+  contents: write
+
+on:
+  push:
+    paths:
+      - '**/*.ipynb'
+  workflow_dispatch:
+
+jobs:
+  strip-widgets:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install nbformat
+        run: python -m pip install nbformat
+
+      - name: Strip widget metadata
+        shell: bash
+        run: |
+          python - << 'PYCODE'
+          import nbformat
+          import os
+
+          for root, _, files in os.walk('.'):
+              for fname in files:
+                  if fname.lower().endswith('.ipynb'):
+                      path = os.path.join(root, fname)
+                      nb = nbformat.read(path, as_version=4)
+                      nb.metadata.pop('widgets', None)
+                      for cell in nb.cells:
+                          cell.metadata.pop('widgets', None)
+                      nbformat.write(nb, path)
+          PYCODE
+
+      - name: Commit cleaned notebooks
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # If any tracked files changed, commit and push them
+          git diff --quiet --exit-code \
+            || (git commit -am "chore: strip widget metadata" && git push)
