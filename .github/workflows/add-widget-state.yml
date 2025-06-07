@@ -1,4 +1,5 @@
-# .github/workflows/add-widget-state.yml
+# File: .github/workflows/add-widget-state.yml
+
 name: Add Widget State to Notebooks
 
 permissions:
@@ -11,72 +12,77 @@ on:
   workflow_dispatch:
 
 jobs:
-  add-state:
+  add-widget-state:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Add state key to widgets
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install nbformat
+        run: python -m pip install nbformat
+
+      - name: Add widget state metadata
+        shell: bash
         run: |
-          python3 - << 'EOF'
-          import json
-          import glob
-          
-          modified_files = []
-          
-          for notebook in glob.glob("**/*.ipynb", recursive=True):
-              modified = False
-              with open(notebook, 'r') as f:
-                  nb = json.load(f)
-              
-              # Add state to notebook metadata widgets
-              if 'widgets' in nb.get('metadata', {}):
-                  if 'state' not in nb['metadata']['widgets']:
-                      nb['metadata']['widgets']['state'] = {}
-                      modified = True
-              
-              # Add state to cell metadata widgets
-              for cell in nb.get('cells', []):
-                  if 'widgets' in cell.get('metadata', {}):
-                      if 'state' not in cell['metadata']['widgets']:
-                          cell['metadata']['widgets']['state'] = {}
-                          modified = True
-              
-              if modified:
-                  with open(notebook, 'w') as f:
-                      json.dump(nb, f, indent=1)
-                  modified_files.append(notebook)
-          
-          if modified_files:
-              print(f"Modified {len(modified_files)} notebooks:")
-              for f in modified_files:
-                  print(f"  - {f}")
-          else:
-              print("No notebooks needed modification")
-          EOF
-      
-      - name: Commit and push changes
+          python - << 'PYCODE'
+          import os
+          import nbformat
+
+          WIDGET_MIME = 'application/vnd.jupyter.widget-state+json'
+
+          def ensure_state(block):
+              """
+              If WIDGET_MIME is present in block, ensure it has a 'state' key.
+              Return True if we inserted one.
+              """
+              if WIDGET_MIME in block:
+                  widget_meta = block[WIDGET_MIME]
+                  if 'state' not in widget_meta:
+                      widget_meta['state'] = {}
+                      return True
+              return False
+
+          any_updated = False
+          for root, _, files in os.walk('.'):
+              for fname in files:
+                  if not fname.lower().endswith('.ipynb'):
+                      continue
+                  path = os.path.join(root, fname)
+                  nb = nbformat.read(path, as_version=4)
+                  updated = False
+
+                  # Top-level metadata
+                  if 'widgets' in nb.metadata:
+                      if ensure_state(nb.metadata['widgets']):
+                          updated = True
+
+                  # Per-cell metadata
+                  for cell in nb.cells:
+                      if 'widgets' in cell.metadata:
+                          if ensure_state(cell.metadata['widgets']):
+                              updated = True
+
+                  if updated:
+                      nbformat.write(nb, path)
+                      print(f'✅ Added state to widgets in {path}')
+                      any_updated = True
+
+          if not any_updated:
+              print('ℹ️  All notebooks already contain widget state.')
+          PYCODE
+
+      - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Check if there are changes
-          if ! git diff --quiet; then
-            echo "Changes detected, committing..."
-            git add -A
-            git commit -m "Add state key to widget metadata"
-            
-            # Pull latest changes and rebase
-            echo "Pulling latest changes..."
-            git pull --rebase origin ${{ github.ref }}
-            
-            # Push changes
-            echo "Pushing changes..."
-            git push origin HEAD:${{ github.ref }}
-          else
-            echo "No changes to commit"
-          fi
+          git diff --quiet --exit-code \
+            || (git commit -am "chore: add widget state metadata" && git push)
