@@ -1,4 +1,10 @@
+# File: .github/workflows/clean-notebooks.yml
+
 name: Clean Jupyter Notebooks Metadata
+
+# Grant write access so GITHUB_TOKEN can push cleaned notebooks
+permissions:
+  contents: write
 
 on:
   push:
@@ -9,10 +15,13 @@ on:
 jobs:
   strip-widgets:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -26,7 +35,9 @@ jobs:
         shell: bash
         run: |
           python - << 'PYCODE'
-          import nbformat, os
+          import nbformat
+          import os
+
           for root, _, files in os.walk('.'):
               for fname in files:
                   if fname.lower().endswith('.ipynb'):
@@ -42,5 +53,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # If any tracked files changed, commit and push them
           git diff --quiet --exit-code \
             || (git commit -am "chore: strip widget metadata" && git push)
