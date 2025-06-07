@@ -31,42 +31,39 @@ jobs:
         shell: bash
         run: |
           pip install nbformat nbclient ipywidgets
-          python - <<'EOF'
-import glob
-import nbformat
-from nbclient import NotebookClient
+          python - << 'EOF'
+          import glob
+          import nbformat
+          from nbclient import NotebookClient
 
-for path in glob.glob("**/*.ipynb", recursive=True):
-    nb = nbformat.read(path, as_version=4)
-    client = NotebookClient(
-        nb,
-        allow_errors=True,
-        store_widget_state=True,
-        timeout=None
-    )
-    try:
-        client.execute()
-    except Exception as e:
-        print(f"⚠️ Execution failed for {path}: {e}")
-
-    # Flatten widget metadata so GitHub sees widgets.state at top level
-    mw = nb.metadata.get("widgets", {})
-    if isinstance(mw, dict):
-        for inner in mw.values():
-            if isinstance(inner, dict) and "state" in inner:
-                nb.metadata["widgets"] = inner
-                break
-
-    for cell in nb.cells:
-        cw = cell.metadata.get("widgets", {})
-        if isinstance(cw, dict):
-            for inner2 in cw.values():
-                if isinstance(inner2, dict) and "state" in inner2:
-                    cell.metadata["widgets"] = inner2
-                    break
-
-    nbformat.write(nb, path)
-EOF
+          for path in glob.glob("**/*.ipynb", recursive=True):
+              nb = nbformat.read(path, as_version=4)
+              client = NotebookClient(
+                  nb,
+                  allow_errors=True,
+                  store_widget_state=True,
+                  timeout=None
+              )
+              try:
+                  client.execute()
+              except Exception as e:
+                  print(f"⚠️ Execution failed for {path}: {e}")
+              # Flatten widget metadata so GitHub sees widgets.state at top level
+              mw = nb.metadata.get("widgets", {})
+              if isinstance(mw, dict):
+                  for inner in mw.values():
+                      if isinstance(inner, dict) and "state" in inner:
+                          nb.metadata["widgets"] = inner
+                          break
+              for cell in nb.cells:
+                  cw = cell.metadata.get("widgets", {})
+                  if isinstance(cw, dict):
+                      for inner2 in cw.values():
+                          if isinstance(inner2, dict) and "state" in inner2:
+                              cell.metadata["widgets"] = inner2
+                              break
+              nbformat.write(nb, path)
+          EOF
 
       - name: Commit changes
         run: |
