@@ -14,7 +14,11 @@ jobs:
   add-state:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Add state key to widgets
         run: |
@@ -22,7 +26,10 @@ jobs:
           import json
           import glob
           
+          modified_files = []
+          
           for notebook in glob.glob("**/*.ipynb", recursive=True):
+              modified = False
               with open(notebook, 'r') as f:
                   nb = json.load(f)
               
@@ -30,19 +37,46 @@ jobs:
               if 'widgets' in nb.get('metadata', {}):
                   if 'state' not in nb['metadata']['widgets']:
                       nb['metadata']['widgets']['state'] = {}
+                      modified = True
               
               # Add state to cell metadata widgets
               for cell in nb.get('cells', []):
                   if 'widgets' in cell.get('metadata', {}):
                       if 'state' not in cell['metadata']['widgets']:
                           cell['metadata']['widgets']['state'] = {}
+                          modified = True
               
-              with open(notebook, 'w') as f:
-                  json.dump(nb, f, indent=1)
+              if modified:
+                  with open(notebook, 'w') as f:
+                      json.dump(nb, f, indent=1)
+                  modified_files.append(notebook)
+          
+          if modified_files:
+              print(f"Modified {len(modified_files)} notebooks:")
+              for f in modified_files:
+                  print(f"  - {f}")
+          else:
+              print("No notebooks needed modification")
           EOF
       
-      - name: Commit changes
+      - name: Commit and push changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git diff --quiet || (git add -A && git commit -m "Add state key to widget metadata" && git push)
+          
+          # Check if there are changes
+          if ! git diff --quiet; then
+            echo "Changes detected, committing..."
+            git add -A
+            git commit -m "Add state key to widget metadata"
+            
+            # Pull latest changes and rebase
+            echo "Pulling latest changes..."
+            git pull --rebase origin ${{ github.ref }}
+            
+            # Push changes
+            echo "Pushing changes..."
+            git push origin HEAD:${{ github.ref }}
+          else
+            echo "No changes to commit"
+          fi
