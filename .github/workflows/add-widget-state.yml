@@ -1,6 +1,6 @@
 # File: .github/workflows/add-widget-state.yml
 
-name: Embed Widget State into Notebooks
+name: Embed Jupyter Widget State via nbclient
 
 permissions:
   contents: write
@@ -22,23 +22,22 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Set up Python
+      - name: Set up Python & install deps
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
+      - run: |
+          python -m pip install nbformat nbclient ipywidgets
 
-      - name: Install dependencies
-        run: python -m pip install nbformat ipywidgets
-
-      - name: Embed widget state via ipywidgets.embed
+      - name: Execute notebooks and store widget state
         shell: bash
         run: |
           python - << 'PYCODE'
           import os
           import nbformat
-          from ipywidgets.embed import embed_widgets
+          from nbclient import NotebookClient
 
-          updated = False
+          failed = False
           for root, _, files in os.walk('.'):
               for fname in files:
                   if not fname.lower().endswith('.ipynb'):
@@ -46,19 +45,23 @@ jobs:
                   path = os.path.join(root, fname)
                   nb = nbformat.read(path, as_version=4)
                   try:
-                      # This will scan every cell, capture each widget's full state,
-                      # and write it into metadata.widgets["...widget-state+json"].state
-                      nb = embed_widgets(nb)
+                      client = NotebookClient(
+                          nb,
+                          timeout=600,
+                          kernel_name="python3",
+                          record_widget_state=True
+                      )
+                      client.execute()
                   except Exception as e:
-                      print(f"❗ Failed to embed widgets in {path}: {e}")
+                      print(f"❗ Failed to run {path}: {e}")
+                      failed = True
                       continue
 
                   nbformat.write(nb, path)
                   print(f"✅ Embedded widget state in {path}")
-                  updated = True
 
-          if not updated:
-              print("ℹ️  No notebooks were modified.")
+          if failed:
+              raise RuntimeError("Some notebooks failed to execute; check logs above.")
           PYCODE
 
       - name: Commit changes
@@ -66,4 +69,4 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git diff --quiet --exit-code \
-            || (git commit -am "chore: embed widget state via ipywidgets.embed" && git push)
+            || (git commit -am "chore: embed widget state via nbclient" && git push)
