@@ -1,0 +1,48 @@
+# .github/workflows/add-widget-state.yml
+name: Add Widget State to Notebooks
+
+permissions:
+  contents: write
+
+on:
+  push:
+    paths:
+      - '**/*.ipynb'
+  workflow_dispatch:
+
+jobs:
+  add-state:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Add state key to widgets
+        run: |
+          python3 - << 'EOF'
+          import json
+          import glob
+          
+          for notebook in glob.glob("**/*.ipynb", recursive=True):
+              with open(notebook, 'r') as f:
+                  nb = json.load(f)
+              
+              # Add state to notebook metadata widgets
+              if 'widgets' in nb.get('metadata', {}):
+                  if 'state' not in nb['metadata']['widgets']:
+                      nb['metadata']['widgets']['state'] = {}
+              
+              # Add state to cell metadata widgets
+              for cell in nb.get('cells', []):
+                  if 'widgets' in cell.get('metadata', {}):
+                      if 'state' not in cell['metadata']['widgets']:
+                          cell['metadata']['widgets']['state'] = {}
+              
+              with open(notebook, 'w') as f:
+                  json.dump(nb, f, indent=1)
+          EOF
+      
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet || (git add -A && git commit -m "Add state key to widget metadata" && git push)
